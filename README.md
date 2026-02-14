@@ -15,6 +15,7 @@ EvtQ provides durable queueing semantics on PostgreSQL with strict concurrency s
 - [Configuration](#configuration)
 - [API surface](#api-surface)
 - [EvtQ vs AWS SQS](#evtq-vs-aws-sqs)
+- [Plan ahead](#plan-ahead)
 - [Documentation](#documentation)
 - [Contributing](#contributing)
 - [License](#license)
@@ -159,6 +160,16 @@ Not supported:
 - Exact parity for every SQS edge behavior
 
 Details: [docs/sqs-compatibility.md](./docs/sqs-compatibility.md)
+
+## Plan ahead
+
+Possible next extensions for EvtQ:
+
+- Message attribute filtering on triggers (fan-out without consumer-side discard).
+- Queue quotas and rate limits (send/receive throttling, in-flight caps).
+- Standard-queue consumer dedup helper patterns for effectively-once workflows.
+- Operational dashboard for queue depth, trigger lag, and failure rates.
+
 
 ## Documentation
 
