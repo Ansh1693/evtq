@@ -351,33 +351,35 @@ func (h *Handler) DeleteMessageBatch(w http.ResponseWriter, r *http.Request) {
 // ---------- Trigger handlers ----------
 
 type triggerRequest struct {
-	Enabled                   *bool  `json:"enabled,omitempty"`
-	TargetType                string `json:"target_type"`
-	TargetURL                 string `json:"target_url"`
-	BatchSize                 *int   `json:"batch_size,omitempty"`
-	BatchWindowSeconds        *int   `json:"batch_window_seconds,omitempty"`
-	MaxConcurrency            *int   `json:"max_concurrency,omitempty"`
-	VisibilityTimeoutOverride *int   `json:"visibility_timeout_override,omitempty"`
-	MaxConcurrencyPerGroup    *int   `json:"max_concurrency_per_group,omitempty"`
-	AutoScale                 *bool  `json:"auto_scale,omitempty"`
-	MinPollers                *int   `json:"min_pollers,omitempty"`
-	MaxPollers                *int   `json:"max_pollers,omitempty"`
-	FailureThreshold          *int   `json:"failure_threshold,omitempty"`
-}
-
-type triggerUpdateRequest struct {
 	Enabled                   *bool   `json:"enabled,omitempty"`
-	TargetType                *string `json:"target_type,omitempty"`
-	TargetURL                 *string `json:"target_url,omitempty"`
+	TargetType                string  `json:"target_type"`
+	TargetURL                 string  `json:"target_url"`
+	FunctionName              *string `json:"function_name,omitempty"`
 	BatchSize                 *int    `json:"batch_size,omitempty"`
 	BatchWindowSeconds        *int    `json:"batch_window_seconds,omitempty"`
 	MaxConcurrency            *int    `json:"max_concurrency,omitempty"`
-	VisibilityTimeoutOverride **int   `json:"visibility_timeout_override,omitempty"`
+	VisibilityTimeoutOverride *int    `json:"visibility_timeout_override,omitempty"`
 	MaxConcurrencyPerGroup    *int    `json:"max_concurrency_per_group,omitempty"`
 	AutoScale                 *bool   `json:"auto_scale,omitempty"`
 	MinPollers                *int    `json:"min_pollers,omitempty"`
 	MaxPollers                *int    `json:"max_pollers,omitempty"`
 	FailureThreshold          *int    `json:"failure_threshold,omitempty"`
+}
+
+type triggerUpdateRequest struct {
+	Enabled                   *bool    `json:"enabled,omitempty"`
+	TargetType                *string  `json:"target_type,omitempty"`
+	TargetURL                 *string  `json:"target_url,omitempty"`
+	FunctionName              **string `json:"function_name,omitempty"`
+	BatchSize                 *int     `json:"batch_size,omitempty"`
+	BatchWindowSeconds        *int     `json:"batch_window_seconds,omitempty"`
+	MaxConcurrency            *int     `json:"max_concurrency,omitempty"`
+	VisibilityTimeoutOverride **int    `json:"visibility_timeout_override,omitempty"`
+	MaxConcurrencyPerGroup    *int     `json:"max_concurrency_per_group,omitempty"`
+	AutoScale                 *bool    `json:"auto_scale,omitempty"`
+	MinPollers                *int     `json:"min_pollers,omitempty"`
+	MaxPollers                *int     `json:"max_pollers,omitempty"`
+	FailureThreshold          *int     `json:"failure_threshold,omitempty"`
 }
 
 type triggerEnableRequest struct {
@@ -395,6 +397,7 @@ func (h *Handler) CreateTrigger(w http.ResponseWriter, r *http.Request) {
 	t, err := h.svc.CreateTrigger(r.Context(), queueName, queue.CreateTriggerInput{
 		TargetType:                req.TargetType,
 		TargetURL:                 req.TargetURL,
+		FunctionName:              req.FunctionName,
 		Enabled:                   req.Enabled,
 		BatchSize:                 req.BatchSize,
 		BatchWindowSeconds:        req.BatchWindowSeconds,
@@ -457,6 +460,7 @@ func (h *Handler) UpdateTrigger(w http.ResponseWriter, r *http.Request) {
 		Enabled:                   req.Enabled,
 		TargetType:                req.TargetType,
 		TargetURL:                 req.TargetURL,
+		FunctionName:              req.FunctionName,
 		BatchSize:                 req.BatchSize,
 		BatchWindowSeconds:        req.BatchWindowSeconds,
 		MaxConcurrency:            req.MaxConcurrency,
@@ -669,6 +673,7 @@ func (h *Handler) handleServiceError(w http.ResponseWriter, err error) {
 		errors.Is(err, queue.ErrBatchEmpty),
 		errors.Is(err, queue.ErrInvalidTriggerTargetType),
 		errors.Is(err, queue.ErrInvalidTargetURL),
+		errors.Is(err, queue.ErrInvalidLambdaFunctionName),
 		errors.Is(err, queue.ErrInvalidTriggerBatchSize),
 		errors.Is(err, queue.ErrInvalidTriggerBatchWindow),
 		errors.Is(err, queue.ErrInvalidTriggerConcurrency),

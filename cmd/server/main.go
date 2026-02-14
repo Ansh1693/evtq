@@ -31,7 +31,7 @@ func main() {
 
 func run(logger *slog.Logger) error {
 	// Configuration from environment.
-	dbURL := getEnv("DATABASE_URL", "postgres://localhost:5432/sqsclone?sslmode=disable")
+	dbURL := getEnv("DATABASE_URL", "postgres://localhost:5432/evtq?sslmode=disable")
 	listenAddr := getEnv("LISTEN_ADDR", ":8080")
 	expiryInterval := 60 * time.Second      // soft-delete expired messages every 60s
 	dedupExpiryInterval := 60 * time.Second // clear expired dedup IDs every 60s

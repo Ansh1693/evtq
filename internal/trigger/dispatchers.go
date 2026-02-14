@@ -261,7 +261,7 @@ func parseGRPCTarget(target string) (address string, method string, err error) {
 		return "", "", errors.New("grpc target is required")
 	}
 
-	defaultMethod := "/sqsclone.trigger.v1.TriggerService/Invoke"
+	defaultMethod := "/evtq.trigger.v1.TriggerService/Invoke"
 	if !strings.Contains(trimmed, "/") {
 		return trimmed, defaultMethod, nil
 	}

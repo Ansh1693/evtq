@@ -39,6 +39,7 @@ var (
 	ErrContentBasedDedupRequiresFIFO = service.ErrContentBasedDedupRequiresFIFO
 	ErrInvalidTriggerTargetType      = service.ErrInvalidTriggerTargetType
 	ErrInvalidTargetURL              = service.ErrInvalidTargetURL
+	ErrInvalidLambdaFunctionName     = service.ErrInvalidLambdaFunctionName
 	ErrInvalidTriggerBatchSize       = service.ErrInvalidTriggerBatchSize
 	ErrInvalidTriggerBatchWindow     = service.ErrInvalidTriggerBatchWindow
 	ErrInvalidTriggerConcurrency     = service.ErrInvalidTriggerConcurrency

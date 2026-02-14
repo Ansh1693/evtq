@@ -53,6 +53,7 @@ var (
 	ErrContentBasedDedupRequiresFIFO = errors.New("content_based_dedup is only valid for FIFO queues")
 	ErrInvalidTriggerTargetType      = errors.New("target_type must be webhook, grpc, local, or lambda")
 	ErrInvalidTargetURL              = errors.New("target_url is required")
+	ErrInvalidLambdaFunctionName     = errors.New("function_name is required for lambda target")
 	ErrInvalidTriggerBatchSize       = errors.New("batch_size must be between 1 and 10")
 	ErrInvalidTriggerBatchWindow     = errors.New("batch_window_seconds must be between 0 and 300")
 	ErrInvalidTriggerConcurrency     = errors.New("max_concurrency must be at least 1")
@@ -490,6 +491,7 @@ func resolveFIFOFields(queue *internal.Queue, body string, groupID, dedupID *str
 type CreateTriggerInput struct {
 	TargetType                string
 	TargetURL                 string
+	FunctionName              *string
 	Enabled                   *bool
 	BatchSize                 *int
 	BatchWindowSeconds        *int
@@ -505,6 +507,7 @@ type CreateTriggerInput struct {
 type UpdateTriggerInput struct {
 	TargetType                *string
 	TargetURL                 *string
+	FunctionName              **string
 	Enabled                   *bool
 	BatchSize                 *int
 	BatchWindowSeconds        *int
@@ -539,6 +542,10 @@ func (s *Service) CreateTrigger(ctx context.Context, queueName string, in Create
 	}
 	if in.Enabled != nil {
 		t.Enabled = *in.Enabled
+	}
+	if in.FunctionName != nil {
+		name := strings.TrimSpace(*in.FunctionName)
+		t.FunctionName = &name
 	}
 	if in.BatchSize != nil {
 		t.BatchSize = *in.BatchSize
@@ -608,6 +615,13 @@ func (s *Service) UpdateTrigger(ctx context.Context, queueName string, triggerID
 	}
 	if in.TargetURL != nil {
 		next.TargetURL = strings.TrimSpace(*in.TargetURL)
+	}
+	if in.FunctionName != nil {
+		next.FunctionName = *in.FunctionName
+		if next.FunctionName != nil {
+			name := strings.TrimSpace(*next.FunctionName)
+			next.FunctionName = &name
+		}
 	}
 	if in.Enabled != nil {
 		next.Enabled = *in.Enabled
@@ -818,8 +832,18 @@ func validateTrigger(queue *internal.Queue, t *internal.Trigger) error {
 	}
 	t.TargetType = targetType
 
-	if strings.TrimSpace(t.TargetURL) == "" {
+	if targetType == internal.TriggerTargetTypeLambda {
+		if t.FunctionName == nil || strings.TrimSpace(*t.FunctionName) == "" {
+			return ErrInvalidLambdaFunctionName
+		}
+		name := strings.TrimSpace(*t.FunctionName)
+		t.FunctionName = &name
+		// Keep target_url mirrored for backward compatibility.
+		t.TargetURL = name
+	} else if strings.TrimSpace(t.TargetURL) == "" {
 		return ErrInvalidTargetURL
+	} else {
+		t.FunctionName = nil
 	}
 	if t.BatchSize < 1 || t.BatchSize > maxBatchSize {
 		return ErrInvalidTriggerBatchSize

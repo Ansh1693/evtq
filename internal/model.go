@@ -66,6 +66,7 @@ type Trigger struct {
 	Enabled                   bool       `json:"enabled"`
 	TargetType                string     `json:"target_type"`
 	TargetURL                 string     `json:"target_url"`
+	FunctionName              *string    `json:"function_name,omitempty"`
 	BatchSize                 int        `json:"batch_size"`
 	BatchWindowSeconds        int        `json:"batch_window_seconds"`
 	MaxConcurrency            int        `json:"max_concurrency"`
@@ -100,12 +101,14 @@ type TriggerRecord struct {
 
 // TriggerPayload mirrors Lambda SQS event payload shape.
 type TriggerPayload struct {
-	TriggerID uuid.UUID       `json:"trigger_id"`
-	QueueID   uuid.UUID       `json:"queue_id"`
-	QueueName string          `json:"queue_name"`
-	QueueType string          `json:"queue_type"`
-	Target    string          `json:"target"`
-	Records   []TriggerRecord `json:"records"`
+	TriggerID    uuid.UUID       `json:"trigger_id"`
+	InvocationID uuid.UUID       `json:"invocation_id"`
+	QueueID      uuid.UUID       `json:"queue_id"`
+	QueueName    string          `json:"queue_name"`
+	QueueType    string          `json:"queue_type"`
+	SourceQueue  string          `json:"source_queue"`
+	Target       string          `json:"target"`
+	Records      []TriggerRecord `json:"records"`
 }
 
 // BatchItemFailure identifies a failed message for partial batch response.

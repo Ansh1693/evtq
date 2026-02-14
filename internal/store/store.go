@@ -339,6 +339,7 @@ func (s *Store) ReceiveMessagesFIFO(ctx context.Context, queueID uuid.UUID, visi
 				  AND m.visible_at <= now()
 				  AND m.expires_at > now()
 				  AND m.deleted_at IS NULL
+				  AND pg_try_advisory_xact_lock(hashtext(m.message_group_id))
 				ORDER BY m.sequence_number
 				LIMIT 1
 				FOR UPDATE SKIP LOCKED
@@ -352,7 +353,6 @@ func (s *Store) ReceiveMessagesFIFO(ctx context.Context, queueID uuid.UUID, visi
 		    receive_count = receive_count + 1
 		FROM candidates c
 		WHERE m.id = c.id
-		  AND pg_try_advisory_xact_lock(hashtext(m.message_group_id))
 		RETURNING m.id, m.queue_id, m.message_group_id, m.message_dedup_id, m.sequence_number, m.body, m.attributes, m.receipt_handle, m.receive_count, m.visible_at, m.expires_at, m.created_at
 	`, queueID, visibilityTimeout, maxMessages)
 	if err != nil {
@@ -725,15 +725,15 @@ func (s *Store) DeleteFunction(ctx context.Context, name string) error {
 func (s *Store) CreateTrigger(ctx context.Context, t *internal.Trigger) (*internal.Trigger, error) {
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO triggers (
-			queue_id, enabled, target_type, target_url, batch_size, batch_window_seconds,
+			queue_id, enabled, target_type, target_url, function_name, batch_size, batch_window_seconds,
 			max_concurrency, visibility_timeout_override, max_concurrency_per_group,
 			auto_scale, min_pollers, max_pollers, failure_threshold
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-		RETURNING id, queue_id, enabled, target_type, target_url, batch_size, batch_window_seconds,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		RETURNING id, queue_id, enabled, target_type, target_url, function_name, batch_size, batch_window_seconds,
 			max_concurrency, visibility_timeout_override, max_concurrency_per_group,
 			auto_scale, min_pollers, max_pollers, failure_threshold, created_at, updated_at, deleted_at
-	`, t.QueueID, t.Enabled, t.TargetType, t.TargetURL, t.BatchSize, t.BatchWindowSeconds,
+	`, t.QueueID, t.Enabled, t.TargetType, t.TargetURL, t.FunctionName, t.BatchSize, t.BatchWindowSeconds,
 		t.MaxConcurrency, t.VisibilityTimeoutOverride, t.MaxConcurrencyPerGroup,
 		t.AutoScale, t.MinPollers, t.MaxPollers, t.FailureThreshold)
 
@@ -747,7 +747,7 @@ func (s *Store) CreateTrigger(ctx context.Context, t *internal.Trigger) (*intern
 // ListTriggersByQueue returns all active triggers for the queue.
 func (s *Store) ListTriggersByQueue(ctx context.Context, queueID uuid.UUID) ([]internal.Trigger, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, queue_id, enabled, target_type, target_url, batch_size, batch_window_seconds,
+		SELECT id, queue_id, enabled, target_type, target_url, function_name, batch_size, batch_window_seconds,
 			max_concurrency, visibility_timeout_override, max_concurrency_per_group,
 			auto_scale, min_pollers, max_pollers, failure_threshold, created_at, updated_at, deleted_at
 		FROM triggers
@@ -776,7 +776,7 @@ func (s *Store) ListTriggersByQueue(ctx context.Context, queueID uuid.UUID) ([]i
 // GetTriggerByIDAndQueue fetches one active trigger by ID and queue.
 func (s *Store) GetTriggerByIDAndQueue(ctx context.Context, queueID, triggerID uuid.UUID) (*internal.Trigger, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT id, queue_id, enabled, target_type, target_url, batch_size, batch_window_seconds,
+		SELECT id, queue_id, enabled, target_type, target_url, function_name, batch_size, batch_window_seconds,
 			max_concurrency, visibility_timeout_override, max_concurrency_per_group,
 			auto_scale, min_pollers, max_pollers, failure_threshold, created_at, updated_at, deleted_at
 		FROM triggers
@@ -796,7 +796,7 @@ func (s *Store) GetTriggerByIDAndQueue(ctx context.Context, queueID, triggerID u
 // GetTriggerByID fetches one active trigger by ID, including queue fields.
 func (s *Store) GetTriggerByID(ctx context.Context, triggerID uuid.UUID) (*internal.TriggerWithQueue, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT t.id, t.queue_id, t.enabled, t.target_type, t.target_url, t.batch_size, t.batch_window_seconds,
+		SELECT t.id, t.queue_id, t.enabled, t.target_type, t.target_url, t.function_name, t.batch_size, t.batch_window_seconds,
 			t.max_concurrency, t.visibility_timeout_override, t.max_concurrency_per_group,
 			t.auto_scale, t.min_pollers, t.max_pollers, t.failure_threshold, t.created_at, t.updated_at, t.deleted_at,
 			q.name, q.queue_type, q.visibility_timeout
@@ -818,7 +818,7 @@ func (s *Store) GetTriggerByID(ctx context.Context, triggerID uuid.UUID) (*inter
 // ListEnabledTriggersWithQueue returns active+enabled triggers with queue info.
 func (s *Store) ListEnabledTriggersWithQueue(ctx context.Context) ([]internal.TriggerWithQueue, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT t.id, t.queue_id, t.enabled, t.target_type, t.target_url, t.batch_size, t.batch_window_seconds,
+		SELECT t.id, t.queue_id, t.enabled, t.target_type, t.target_url, t.function_name, t.batch_size, t.batch_window_seconds,
 			t.max_concurrency, t.visibility_timeout_override, t.max_concurrency_per_group,
 			t.auto_scale, t.min_pollers, t.max_pollers, t.failure_threshold, t.created_at, t.updated_at, t.deleted_at,
 			q.name, q.queue_type, q.visibility_timeout
@@ -853,21 +853,22 @@ func (s *Store) UpdateTrigger(ctx context.Context, t *internal.Trigger) (*intern
 		SET enabled = $3,
 		    target_type = $4,
 		    target_url = $5,
-		    batch_size = $6,
-		    batch_window_seconds = $7,
-		    max_concurrency = $8,
-		    visibility_timeout_override = $9,
-		    max_concurrency_per_group = $10,
-		    auto_scale = $11,
-		    min_pollers = $12,
-		    max_pollers = $13,
-		    failure_threshold = $14,
+		    function_name = $6,
+		    batch_size = $7,
+		    batch_window_seconds = $8,
+		    max_concurrency = $9,
+		    visibility_timeout_override = $10,
+		    max_concurrency_per_group = $11,
+		    auto_scale = $12,
+		    min_pollers = $13,
+		    max_pollers = $14,
+		    failure_threshold = $15,
 		    updated_at = now()
 		WHERE queue_id = $1 AND id = $2 AND deleted_at IS NULL
-		RETURNING id, queue_id, enabled, target_type, target_url, batch_size, batch_window_seconds,
+		RETURNING id, queue_id, enabled, target_type, target_url, function_name, batch_size, batch_window_seconds,
 			max_concurrency, visibility_timeout_override, max_concurrency_per_group,
 			auto_scale, min_pollers, max_pollers, failure_threshold, created_at, updated_at, deleted_at
-	`, t.QueueID, t.ID, t.Enabled, t.TargetType, t.TargetURL, t.BatchSize, t.BatchWindowSeconds,
+	`, t.QueueID, t.ID, t.Enabled, t.TargetType, t.TargetURL, t.FunctionName, t.BatchSize, t.BatchWindowSeconds,
 		t.MaxConcurrency, t.VisibilityTimeoutOverride, t.MaxConcurrencyPerGroup,
 		t.AutoScale, t.MinPollers, t.MaxPollers, t.FailureThreshold)
 
@@ -902,7 +903,7 @@ func (s *Store) SetTriggerEnabled(ctx context.Context, queueID, triggerID uuid.U
 		UPDATE triggers
 		SET enabled = $3, updated_at = now()
 		WHERE queue_id = $1 AND id = $2 AND deleted_at IS NULL
-		RETURNING id, queue_id, enabled, target_type, target_url, batch_size, batch_window_seconds,
+		RETURNING id, queue_id, enabled, target_type, target_url, function_name, batch_size, batch_window_seconds,
 			max_concurrency, visibility_timeout_override, max_concurrency_per_group,
 			auto_scale, min_pollers, max_pollers, failure_threshold, created_at, updated_at, deleted_at
 	`, queueID, triggerID, enabled)
@@ -1038,7 +1039,7 @@ func scanMessageFromRows(rows pgx.Rows) (*internal.Message, error) {
 func scanTrigger(row pgx.Row) (*internal.Trigger, error) {
 	var t internal.Trigger
 	err := row.Scan(
-		&t.ID, &t.QueueID, &t.Enabled, &t.TargetType, &t.TargetURL, &t.BatchSize, &t.BatchWindowSeconds,
+		&t.ID, &t.QueueID, &t.Enabled, &t.TargetType, &t.TargetURL, &t.FunctionName, &t.BatchSize, &t.BatchWindowSeconds,
 		&t.MaxConcurrency, &t.VisibilityTimeoutOverride, &t.MaxConcurrencyPerGroup,
 		&t.AutoScale, &t.MinPollers, &t.MaxPollers, &t.FailureThreshold, &t.CreatedAt, &t.UpdatedAt, &t.DeletedAt,
 	)
@@ -1051,7 +1052,7 @@ func scanTrigger(row pgx.Row) (*internal.Trigger, error) {
 func scanTriggerFromRows(rows pgx.Rows) (*internal.Trigger, error) {
 	var t internal.Trigger
 	err := rows.Scan(
-		&t.ID, &t.QueueID, &t.Enabled, &t.TargetType, &t.TargetURL, &t.BatchSize, &t.BatchWindowSeconds,
+		&t.ID, &t.QueueID, &t.Enabled, &t.TargetType, &t.TargetURL, &t.FunctionName, &t.BatchSize, &t.BatchWindowSeconds,
 		&t.MaxConcurrency, &t.VisibilityTimeoutOverride, &t.MaxConcurrencyPerGroup,
 		&t.AutoScale, &t.MinPollers, &t.MaxPollers, &t.FailureThreshold, &t.CreatedAt, &t.UpdatedAt, &t.DeletedAt,
 	)
@@ -1064,7 +1065,7 @@ func scanTriggerFromRows(rows pgx.Rows) (*internal.Trigger, error) {
 func scanTriggerWithQueue(row pgx.Row) (*internal.TriggerWithQueue, error) {
 	var t internal.TriggerWithQueue
 	err := row.Scan(
-		&t.ID, &t.QueueID, &t.Enabled, &t.TargetType, &t.TargetURL, &t.BatchSize, &t.BatchWindowSeconds,
+		&t.ID, &t.QueueID, &t.Enabled, &t.TargetType, &t.TargetURL, &t.FunctionName, &t.BatchSize, &t.BatchWindowSeconds,
 		&t.MaxConcurrency, &t.VisibilityTimeoutOverride, &t.MaxConcurrencyPerGroup,
 		&t.AutoScale, &t.MinPollers, &t.MaxPollers, &t.FailureThreshold, &t.CreatedAt, &t.UpdatedAt, &t.DeletedAt,
 		&t.QueueName, &t.QueueType, &t.QueueVisibilityTimeout,
@@ -1078,7 +1079,7 @@ func scanTriggerWithQueue(row pgx.Row) (*internal.TriggerWithQueue, error) {
 func scanTriggerWithQueueFromRows(rows pgx.Rows) (*internal.TriggerWithQueue, error) {
 	var t internal.TriggerWithQueue
 	err := rows.Scan(
-		&t.ID, &t.QueueID, &t.Enabled, &t.TargetType, &t.TargetURL, &t.BatchSize, &t.BatchWindowSeconds,
+		&t.ID, &t.QueueID, &t.Enabled, &t.TargetType, &t.TargetURL, &t.FunctionName, &t.BatchSize, &t.BatchWindowSeconds,
 		&t.MaxConcurrency, &t.VisibilityTimeoutOverride, &t.MaxConcurrencyPerGroup,
 		&t.AutoScale, &t.MinPollers, &t.MaxPollers, &t.FailureThreshold, &t.CreatedAt, &t.UpdatedAt, &t.DeletedAt,
 		&t.QueueName, &t.QueueType, &t.QueueVisibilityTimeout,

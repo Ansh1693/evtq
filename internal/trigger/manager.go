@@ -363,13 +363,19 @@ func (m *Manager) invokeAndHandle(ctx context.Context, cfg internal.TriggerWithQ
 	defer cancel()
 
 	start := time.Now()
+	target := cfg.TargetURL
+	if cfg.TargetType == internal.TriggerTargetTypeLambda && cfg.FunctionName != nil && *cfg.FunctionName != "" {
+		target = *cfg.FunctionName
+	}
 	err := dispatcher.Invoke(invokeCtx, internal.TriggerPayload{
-		TriggerID: cfg.ID,
-		QueueID:   cfg.QueueID,
-		QueueName: cfg.QueueName,
-		QueueType: cfg.QueueType,
-		Target:    cfg.TargetURL,
-		Records:   records,
+		TriggerID:    cfg.ID,
+		InvocationID: uuid.New(),
+		QueueID:      cfg.QueueID,
+		QueueName:    cfg.QueueName,
+		QueueType:    cfg.QueueType,
+		SourceQueue:  cfg.QueueName,
+		Target:       target,
+		Records:      records,
 	})
 	durationMS := time.Since(start).Milliseconds()
 
@@ -470,6 +476,7 @@ func triggerConfigChanged(a, b internal.TriggerWithQueue) bool {
 		a.Enabled != b.Enabled ||
 		a.TargetType != b.TargetType ||
 		a.TargetURL != b.TargetURL ||
+		derefString(a.FunctionName) != derefString(b.FunctionName) ||
 		a.BatchSize != b.BatchSize ||
 		a.BatchWindowSeconds != b.BatchWindowSeconds ||
 		a.MaxConcurrency != b.MaxConcurrency ||
@@ -489,4 +496,11 @@ func triggerConfigChanged(a, b internal.TriggerWithQueue) bool {
 		return true
 	}
 	return false
+}
+
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
